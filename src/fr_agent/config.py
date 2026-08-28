@@ -14,7 +14,10 @@ class Settings(BaseSettings):
     )
 
     # LLM
-    model: str = "claude-opus-4-8"
+    llm_provider: str = "openai"
+    model: str = "qwen.qwen3-32b"
+    llm_api_key: str = ""
+    llm_base_url: str = ""
     max_reply_tokens: int = 1024
 
     # WhatsApp (Meta Cloud API)

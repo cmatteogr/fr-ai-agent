@@ -19,7 +19,8 @@ from fr_agent.config import Settings, get_settings
 from fr_agent.infrastructure.llm.anthropic_llm import AnthropicLLM
 from fr_agent.infrastructure.messaging.meta_whatsapp import MetaWhatsAppMessenger
 from fr_agent.infrastructure.persistence.in_memory import InMemorySessionRepository
-
+from fr_agent.infrastructure.llm.anthropic_llm import AnthropicLLM
+from fr_agent.infrastructure.llm.openai_llm import OpenAICompatibleLLM
 
 @dataclass
 class Container:
@@ -40,7 +41,7 @@ def build_container(
 ) -> Container:
     """Production wiring by default; pass fakes for tests / local dev."""
     settings = settings or get_settings()
-    llm = llm or AnthropicLLM(model=settings.model)
+    llm = llm or _build_llm(settings)
     messaging = messaging or MetaWhatsAppMessenger(
         token=settings.whatsapp_token,
         phone_number_id=settings.whatsapp_phone_number_id,
@@ -69,4 +70,14 @@ def build_container(
         handle_inbound_message=HandleInboundMessage(
             orchestrator=orchestrator, sessions=sessions, messaging=messaging
         ),
+    )
+
+
+def _build_llm(settings: Settings) -> LLMPort:
+    if settings.llm_provider == "anthropic":
+        return AnthropicLLM(model=settings.model)
+    return OpenAICompatibleLLM(
+        model=settings.model,
+        api_key=settings.llm_api_key,
+        base_url=settings.llm_base_url,
     )

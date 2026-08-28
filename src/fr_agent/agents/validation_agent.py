@@ -14,18 +14,25 @@ from fr_agent.domain.validation import (
     ValidationChecklist,
 )
 
+MAX_ATTEMPS_PER_FIELD = 3        
+
 
 class ValidationAgent:
     def apply_updates(self, checklist: ValidationChecklist, updates: list[FieldUpdate]) -> None:
         for update in updates:
             checklist.apply(update)
-
-    def next_objective(self, checklist: ValidationChecklist) -> str | None:
+    # change in code for try when the answer of seller is ambiguous
+    def next_objective(self, checklist) -> str | None:
         """Human-readable objective for the conversation agent, or None if done."""
-        open_fields = checklist.open_fields()
-        if not open_fields:
-            return None
-        target = open_fields[0]
+        for field in checklist.open_fields():
+            if field.attempts >= MAX_ATTEMPS_PER_FIELD:
+                field.status = FieldStatus.SKIPPED   # give up, continue
+                continue
+            field.attempts += 1
+            return self._objective_for(field)
+        return None
+
+    def _objective_for(self, target) -> str:
         description = FIELD_DESCRIPTIONS[target.field]
         if target.status == FieldStatus.CONFLICTING:
             return (

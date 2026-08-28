@@ -46,6 +46,7 @@ class FieldStatus(StrEnum):
     PARTIAL = "partial"          # mentioned, but incomplete or vague
     CONFIRMED = "confirmed"      # seller gave a clear, specific answer
     CONFLICTING = "conflicting"  # seller contradicted an earlier statement or a known fact
+    SKIPPED = "skipped"          #seller cant confirm information, continue
 
 
 class FieldUpdate(BaseModel):
@@ -62,6 +63,7 @@ class ChecklistField(BaseModel):
     status: FieldStatus = FieldStatus.PENDING
     value: str = ""
     evidence: list[str] = Field(default_factory=list)
+    attempts: int = 0 
 
 
 class ValidationChecklist(BaseModel):
