@@ -5,7 +5,6 @@ from fr_agent.application.ports.llm import ChatMessage
 import os
 
 
-
 settings = get_settings()
 print("Provider:", settings.llm_provider, "| Model:", settings.model)
 print(
@@ -24,6 +23,8 @@ llm = OpenAICompatibleLLM(
     api_key=settings.llm_api_key,
     base_url=settings.llm_base_url,
 )
+k = settings.llm_api_key
+print("len:", len(k), "| empieza:", repr(k[:4]), "| termina:", repr(k[-4:]))
 reply = llm.complete(
     system="Sos un asistente.",
     messages=[ChatMessage(role="user", content="Respondé solo: integración ok")],

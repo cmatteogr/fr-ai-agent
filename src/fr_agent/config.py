@@ -29,6 +29,10 @@ class Settings(BaseSettings):
     # Conversation policy
     conversation_language: str = "es"
     max_turns: int = 30
+    
+    # MLflow tracing
+    mlflow_tracking_uri: str = "sqlite:///mlflow.db"
+    mlflow_experiment: str = "fr-ai-agent"
 
 
 @lru_cache
