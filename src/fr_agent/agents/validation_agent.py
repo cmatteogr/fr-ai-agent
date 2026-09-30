@@ -12,6 +12,7 @@ from fr_agent.domain.validation import (
     FieldStatus,
     FieldUpdate,
     ValidationChecklist,
+    OPTIONAL_FIELDS
 )
 
 
@@ -23,15 +24,21 @@ class ValidationAgent:
         for update in updates:
             checklist.apply(update)   # solo aplica; NO toca attempts
 
-    def next_objectives(self, checklist: ValidationChecklist) -> list[str]:
+    def next_targets(self, checklist: ValidationChecklist):
+        """The actual fields the next message will ask about (bumps
+        `attempts` — call this once per turn, not next_objectives too)."""
         open_fields = checklist.askable_open_fields()
-        if not open_fields:
-            return []
-        objectives = []
-        for target in open_fields[: self._batch_size]:
+        open_fields.sort(key=lambda f: (f.field in OPTIONAL_FIELDS, -f.priority.value))
+        targets = open_fields[: self._batch_size]
+        for target in targets:
             target.attempts += 1      # lo estamos preguntando AHORA
-            objectives.append(self._objective_for(target))
-        return objectives
+        return targets
+
+    def objective_text(self, targets) -> list[str]:
+        return [self._objective_for(t) for t in targets]
+
+    def next_objectives(self, checklist: ValidationChecklist) -> list[str]:
+        return self.objective_text(self.next_targets(checklist))
 
     def _objective_for(self, target) -> str:
         description = FIELD_DESCRIPTIONS[target.field]

@@ -22,10 +22,10 @@ def test_inbound_message_updates_checklist_and_replies(container, demo_property,
         ExtractionResult(
             updates=[
                 FieldUpdate(
-                    field=FieldName.LOCATION,
+                    field=FieldName.ADDRESS,
                     status=FieldStatus.CONFIRMED,
-                    value="Calle 35 #70-20, Laureles, Medellín",
-                    evidence="queda en la calle 35 con 70 en Laureles",
+                    value="Calle 35 #70-20",
+                    evidence="queda en la calle 35 con 70",
                 )
             ]
         )
@@ -33,11 +33,11 @@ def test_inbound_message_updates_checklist_and_replies(container, demo_property,
 
     container.start_validation.execute(demo_property)
     container.handle_inbound_message.execute(
-        from_phone="+571111111111", text="queda en la calle 35 con 70 en Laureles"
+        from_phone="+571111111111", text="queda en la calle 35 con 70"
     )
 
     session = container.sessions.get_by_phone("+571111111111")
-    assert session.checklist.fields[FieldName.LOCATION].status == FieldStatus.CONFIRMED
+    assert session.checklist.fields[FieldName.ADDRESS].status == FieldStatus.CONFIRMED
     assert len(container.messaging.sent) == 2  # opening + follow-up
 
 

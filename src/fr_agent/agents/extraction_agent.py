@@ -1,8 +1,16 @@
 """Extraction agent: seller message -> structured checklist updates.
 
-Uses schema-constrained output (LLMPort.extract), so the result is always a
-valid ExtractionResult — no JSON parsing or retry logic needed here.
+Uses schema-constrained output (LLMPort.extract) — the endpoint is asked to
+enforce the schema server-side, which is usually valid. "Usually" is not
+"always": a model can still ramble past the token budget and hand back
+truncated/invalid JSON (seen in testing — one off-topic seller reply caused
+this). We do NOT retry (retrying the same input risks the same rambling
+failure and doubles cost on exactly the calls that already went wrong) — we
+log it and treat the turn as "no updates", so one bad completion never
+crashes a real seller's conversation.
 """
+
+import logging
 
 from pydantic import BaseModel, Field
 
@@ -10,6 +18,8 @@ from fr_agent.agents.prompts.extraction import EXTRACTION_SYSTEM
 from fr_agent.application.ports.llm import ChatMessage, LLMPort
 from fr_agent.domain.conversation import Conversation, Role
 from fr_agent.domain.validation import FieldUpdate
+
+logger = logging.getLogger(__name__)
 
 
 class ExtractionResult(BaseModel):
@@ -32,9 +42,17 @@ class ExtractionAgent:
                 ),
             )
         ]
-        return self._llm.extract(
-            system=EXTRACTION_SYSTEM, messages=messages, output_type=ExtractionResult
-        )
+        try:
+            return self._llm.extract(
+                system=EXTRACTION_SYSTEM, messages=messages, output_type=ExtractionResult
+            )
+        except Exception:
+            logger.warning(
+                "Extraction failed to parse for message %r — treating as no updates this turn.",
+                inbound_text,
+                exc_info=True,
+            )
+            return ExtractionResult()
 
 
 def _render_transcript(conversation: Conversation) -> str:

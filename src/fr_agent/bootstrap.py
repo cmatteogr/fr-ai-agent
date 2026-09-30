@@ -61,6 +61,7 @@ def build_container(
             max_reply_tokens=settings.max_reply_tokens,
         ),
         max_turns=settings.max_turns,
+        unresponsive_streak_limit=settings.unresponsive_streak_limit,
     )
     return Container(
         settings=settings,
@@ -83,4 +84,5 @@ def _build_llm(settings: Settings) -> LLMPort:
         model=settings.model,
         api_key=settings.llm_api_key,
         base_url=settings.llm_base_url,
+        temperature=settings.llm_temperature,
     )

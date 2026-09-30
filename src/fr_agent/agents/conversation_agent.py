@@ -27,6 +27,7 @@ class ConversationAgent:
             known_facts=_known_facts_text(session),
             checklist_summary=session.checklist.summary(),
             objectives=objectives,
+            closing_reason=session.conversation.state.value if objectives is None else None,
         )
         history = [
             ChatMessage(

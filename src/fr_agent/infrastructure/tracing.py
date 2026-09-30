@@ -1,15 +1,13 @@
-"""MLflow session tracing: ONE run per conversation session.
-Each turn is logged as a JSON artifact inside that run, so the UI shows a
-single row per session containing all its turns (instead of one trace per
-inbound message).
-"""
+"""MLflow tracing: one trace per conversation (session root span), turns nested."""
+
+from contextlib import contextmanager
 
 import mlflow
 
 from fr_agent.config import Settings
 
-# seller_phone -> mlflow run_id (in-process registry)
-_runs: dict[str, str] = {}
+# Candidate keys MLflow versions use for session grouping; setting all is harmless.
+SESSION_TAG_KEYS = ("session_id", "mlflow.sessionId", "mlflow.trace.session")
 
 
 def setup_tracing(settings: Settings) -> None:
@@ -17,28 +15,40 @@ def setup_tracing(settings: Settings) -> None:
     mlflow.set_experiment(settings.mlflow_experiment)
 
 
+def _tag_session(key: str) -> None:
+    mlflow.update_current_trace(tags={k: key for k in SESSION_TAG_KEYS})
+
+
+@contextmanager
+def session_span(key: str):
+    with mlflow.start_span(name=f"session-{key}") as span:
+        span.set_attributes({"session_id": key})
+        _tag_session(key)
+        yield span
+
+
 def start_session(key: str, **params) -> None:
-    """Open the session run and remember its id."""
-    with mlflow.start_run(run_name=f"session-{key}") as run:
-        for name, value in params.items():
-            mlflow.log_param(name, value)
-        _runs[key] = run.info.run_id
+    return None
 
 
 def log_turn(key: str, turn_index: int, data: dict) -> None:
-    """Attach one turn (inbound/outbound/updates) to the session run."""
-    run_id = _runs.get(key)
-    if not run_id:
-        return
-    with mlflow.start_run(run_id=run_id):
-        mlflow.log_dict(data, f"turn_{turn_index:02d}.json")
+    with mlflow.start_span(name=f"turn_{turn_index:02d}") as span:
+        span.set_inputs({"inbound": data.get("inbound")})
+        span.set_outputs({"reply": data.get("reply")})
+        span.set_attributes(
+            {
+                "session_id": key,
+                "state": str(data.get("state")),
+                "objectives": str(data.get("objectives")),
+                "updates": str(data.get("updates")),
+            }
+        )
+        _tag_session(key)
 
 
 def end_session(key: str, summary: dict) -> None:
-    """Log the final checklist/state and close the session run."""
-    run_id = _runs.pop(key, None)
-    if not run_id:
-        return
-    with mlflow.start_run(run_id=run_id):
-        mlflow.log_dict(summary, "session_summary.json")
-        mlflow.set_tag("status", str(summary.get("state", "")))
+    with mlflow.start_span(name="session_summary") as span:
+        span.set_inputs({"session_id": key})
+        span.set_outputs(summary)
+        span.set_attributes({"session_id": key, "state": str(summary.get("state"))})
+        _tag_session(key)

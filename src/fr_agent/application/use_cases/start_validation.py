@@ -5,6 +5,7 @@ from fr_agent.application.ports.messaging import MessagingPort
 from fr_agent.application.ports.repository import SessionRepository
 from fr_agent.domain.property import Property
 from fr_agent.domain.session import ValidationSession
+from fr_agent.domain.validation import ValidationChecklist
 
 
 class StartValidation:
@@ -20,7 +21,8 @@ class StartValidation:
         self._messaging = messaging
 
     def execute(self, property_: Property) -> ValidationSession:
-        session = ValidationSession(property=property_)
+        checklist = ValidationChecklist.seeded_from(property_.known_checklist_fields())
+        session = ValidationSession(property=property_, checklist=checklist)
         result = self._orchestrator.start(session)
         if result.reply:
             self._messaging.send_text(to=session.seller_phone, text=result.reply)
