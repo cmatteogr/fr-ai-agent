@@ -26,9 +26,13 @@ def main() -> None:
     property_ = Property(
         id="demo-1",
         seller=Seller(name="Demo Seller", phone="+570000000000"),
+        # Structured — what the listing actually has, pre-fills the checklist as CONFIRMED.
+        address="Calle 4 Casa 12-22",
+        neighborhood="Laureles",
+        city="Medellín",
+        # Free text — never treated as confirmed (listed price != seller's min_price).
         known_facts={
             "listed_price": "350,000,000 COP",
-            "address_hint": "Laureles, Medellín",
             "source": "listing portal (demo)",
         },
     )

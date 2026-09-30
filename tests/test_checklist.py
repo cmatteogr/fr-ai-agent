@@ -15,10 +15,39 @@ def test_starts_with_all_fields_pending():
 def test_confirmed_update_closes_field():
     checklist = ValidationChecklist()
     checklist.apply(
-        FieldUpdate(field=FieldName.LOCATION, status=FieldStatus.CONFIRMED, value="Laureles")
+        FieldUpdate(field=FieldName.NEIGHBORHOOD, status=FieldStatus.CONFIRMED, value="Laureles")
     )
-    assert checklist.fields[FieldName.LOCATION].status == FieldStatus.CONFIRMED
-    assert FieldName.LOCATION not in [f.field for f in checklist.open_fields()]
+    assert checklist.fields[FieldName.NEIGHBORHOOD].status == FieldStatus.CONFIRMED
+    assert FieldName.NEIGHBORHOOD not in [f.field for f in checklist.open_fields()]
+
+
+def test_seeded_from_confirms_only_the_fields_the_listing_has():
+    checklist = ValidationChecklist.seeded_from(
+        {FieldName.NEIGHBORHOOD: "Laureles", FieldName.CITY: "Medellín"}
+    )
+    assert checklist.fields[FieldName.NEIGHBORHOOD].status == FieldStatus.CONFIRMED
+    assert checklist.fields[FieldName.CITY].status == FieldStatus.CONFIRMED
+    # Not in the listing -> still open, still gets asked.
+    assert checklist.fields[FieldName.ADDRESS].status == FieldStatus.PENDING
+    assert checklist.fields[FieldName.LEGAL_STATUS].status == FieldStatus.PENDING
+
+
+def test_restating_a_seeded_value_with_a_typo_is_not_a_conflict():
+    checklist = ValidationChecklist.seeded_from({FieldName.NEIGHBORHOOD: "Laureles"})
+    checklist.apply(
+        FieldUpdate(field=FieldName.NEIGHBORHOOD, status=FieldStatus.CONFIRMED, value="laurles")
+    )
+    assert checklist.fields[FieldName.NEIGHBORHOOD].status == FieldStatus.CONFIRMED
+
+
+def test_a_genuinely_different_value_still_conflicts():
+    checklist = ValidationChecklist.seeded_from({FieldName.NEIGHBORHOOD: "Belén"})
+    checklist.apply(
+        FieldUpdate(
+            field=FieldName.NEIGHBORHOOD, status=FieldStatus.CONFIRMED, value="Belén La Mota"
+        )
+    )
+    assert checklist.fields[FieldName.NEIGHBORHOOD].status == FieldStatus.CONFLICTING
 
 
 def test_contradicting_a_confirmed_field_flags_conflict():
