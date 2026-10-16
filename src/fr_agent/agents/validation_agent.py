@@ -12,36 +12,44 @@ from fr_agent.domain.validation import (
     FieldStatus,
     FieldUpdate,
     ValidationChecklist,
+    OPTIONAL_FIELDS
 )
-
-MAX_ATTEMPS_PER_FIELD = 3        
 
 
 class ValidationAgent:
+    def __init__(self, *, batch_size: int = 2):
+        self._batch_size = batch_size
+
     def apply_updates(self, checklist: ValidationChecklist, updates: list[FieldUpdate]) -> None:
         for update in updates:
-            checklist.apply(update)
-    # change in code for try when the answer of seller is ambiguous
-    def next_objective(self, checklist) -> str | None:
-        """Human-readable objective for the conversation agent, or None if done."""
-        for field in checklist.open_fields():
-            if field.attempts >= MAX_ATTEMPS_PER_FIELD:
-                field.status = FieldStatus.SKIPPED   # give up, continue
-                continue
-            field.attempts += 1
-            return self._objective_for(field)
-        return None
+            checklist.apply(update)   # solo aplica; NO toca attempts
+
+    def next_targets(self, checklist: ValidationChecklist):
+        """The actual fields the next message will ask about (bumps
+        `attempts` — call this once per turn, not next_objectives too)."""
+        open_fields = checklist.askable_open_fields()
+        open_fields.sort(key=lambda f: (f.field in OPTIONAL_FIELDS, -f.priority.value))
+        targets = open_fields[: self._batch_size]
+        for target in targets:
+            target.attempts += 1      # lo estamos preguntando AHORA
+        return targets
+
+    def objective_text(self, targets) -> list[str]:
+        return [self._objective_for(t) for t in targets]
+
+    def next_objectives(self, checklist: ValidationChecklist) -> list[str]:
+        return self.objective_text(self.next_targets(checklist))
 
     def _objective_for(self, target) -> str:
         description = FIELD_DESCRIPTIONS[target.field]
         if target.status == FieldStatus.CONFLICTING:
             return (
-                f"The seller gave contradictory information about: {description} "
-                f"Current value on record: '{target.value}'. Politely clarify which is correct."
+                f"Clarify contradiction about: {description} "
+                f"(current: '{target.value}')."
             )
         if target.status == FieldStatus.PARTIAL:
             return (
-                f"Complete this partially-answered topic: {description} "
-                f"What we have so far: '{target.value}'."
+                f"Complete this partial topic: {description} "
+                f"(have so far: '{target.value}')."
             )
         return f"Ask about: {description}"

@@ -15,6 +15,15 @@ from pydantic import BaseModel
 T = TypeVar("T", bound=BaseModel)
 
 
+class ExtractionParseError(ValueError):
+    """The model's structured answer could not be parsed (e.g. cut off at the
+    token limit). Carries the raw text so callers can salvage what's there."""
+
+    def __init__(self, message: str, raw: str):
+        super().__init__(message)
+        self.raw = raw
+
+
 class ChatMessage(BaseModel):
     role: str  # "user" | "assistant"
     content: str

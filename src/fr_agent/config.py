@@ -19,6 +19,10 @@ class Settings(BaseSettings):
     llm_api_key: str = ""
     llm_base_url: str = ""
     max_reply_tokens: int = 1024
+    # 0 = as deterministic as the endpoint allows. Agreed with the team:
+    # random ordering/skipped fields between identical runs made dataset
+    # regressions unreadable (same input, different output every time).
+    llm_temperature: float = 0.0
 
     # WhatsApp (Meta Cloud API)
     whatsapp_token: str = ""
@@ -29,6 +33,14 @@ class Settings(BaseSettings):
     # Conversation policy
     conversation_language: str = "es"
     max_turns: int = 30
+    # How many turns in a row the seller can reply without addressing what
+    # was actually asked (off-topic, jokes, deflection) before the agent
+    # gives up on that seller instead of continuing to spend turns/tokens.
+    unresponsive_streak_limit: int = 3
+    
+    # MLflow tracing
+    mlflow_tracking_uri: str = "sqlite:///mlflow.db"
+    mlflow_experiment: str = "fr-ai-agent"
 
 
 @lru_cache

@@ -21,6 +21,8 @@ from fr_agent.infrastructure.messaging.meta_whatsapp import MetaWhatsAppMessenge
 from fr_agent.infrastructure.persistence.in_memory import InMemorySessionRepository
 from fr_agent.infrastructure.llm.anthropic_llm import AnthropicLLM
 from fr_agent.infrastructure.llm.openai_llm import OpenAICompatibleLLM
+from fr_agent.infrastructure.tracing import setup_tracing
+
 
 @dataclass
 class Container:
@@ -41,6 +43,7 @@ def build_container(
 ) -> Container:
     """Production wiring by default; pass fakes for tests / local dev."""
     settings = settings or get_settings()
+    setup_tracing(settings)
     llm = llm or _build_llm(settings)
     messaging = messaging or MetaWhatsAppMessenger(
         token=settings.whatsapp_token,
@@ -58,6 +61,7 @@ def build_container(
             max_reply_tokens=settings.max_reply_tokens,
         ),
         max_turns=settings.max_turns,
+        unresponsive_streak_limit=settings.unresponsive_streak_limit,
     )
     return Container(
         settings=settings,
@@ -80,4 +84,5 @@ def _build_llm(settings: Settings) -> LLMPort:
         model=settings.model,
         api_key=settings.llm_api_key,
         base_url=settings.llm_base_url,
+        temperature=settings.llm_temperature,
     )

@@ -5,6 +5,8 @@ from enum import StrEnum
 
 from pydantic import BaseModel, Field
 
+from fr_agent.domain.validation import FieldName
+
 
 class Role(StrEnum):
     AGENT = "agent"    # us
@@ -19,14 +21,30 @@ class Message(BaseModel):
 
 class ConversationState(StrEnum):
     ACTIVE = "active"
-    COMPLETED = "completed"      # checklist fully validated
-    OPTED_OUT = "opted_out"      # seller asked to stop
-    TURN_LIMIT = "turn_limit"    # budget exhausted before completion
+    COMPLETED = "completed"        # checklist fully validated
+    OPTED_OUT = "opted_out"        # seller asked to stop
+    TURN_LIMIT = "turn_limit"      # budget exhausted before completion
+    UNRESPONSIVE = "unresponsive"  # seller kept not addressing what was asked
 
 
 class Conversation(BaseModel):
     messages: list[Message] = Field(default_factory=list)
     state: ConversationState = ConversationState.ACTIVE
+    # Fields the agent's LAST message actually asked about — set right
+    # after generating a reply, read on the NEXT inbound turn to check
+    # whether the seller's answer addressed any of them.
+    pending_fields: list[FieldName] = Field(default_factory=list)
+    # Consecutive turns where the seller's reply didn't address any
+    # pending_fields. Reset to 0 the moment a real answer lands.
+    off_topic_streak: int = 0
+    # The "are you a bot?" exception (no attempts spent, streak frozen) applies
+    # once per conversation. A seller who keeps asking isn't engaging, and a
+    # misfiring bot flag must not be able to block "unresponsive" forever.
+    bot_question_answered: bool = False
+    # The agent asked "¿preferís que no te escribamos más?" and is waiting for
+    # the answer. Only a confirmed stop closes the conversation, so pressure
+    # misread as a stop ("sin más preguntas") never loses a seller.
+    stop_confirmation_pending: bool = False
 
     def add(self, role: Role, text: str) -> None:
         self.messages.append(Message(role=role, text=text))
