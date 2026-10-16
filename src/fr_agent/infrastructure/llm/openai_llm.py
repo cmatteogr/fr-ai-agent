@@ -11,7 +11,7 @@ from typing import TypeVar
 from openai import OpenAI
 from pydantic import BaseModel
 
-from fr_agent.application.ports.llm import ChatMessage
+from fr_agent.application.ports.llm import ChatMessage, ExtractionParseError
 
 T = TypeVar("T", bound=BaseModel)
 
@@ -82,7 +82,10 @@ class OpenAICompatibleLLM:
         strict_schema = _to_strict_schema(output_type.model_json_schema())
         response = self._client.chat.completions.create(
             model=self._model,
-            max_tokens=4096,
+            # A complete valid answer (all 12 fields, long evidence quotes) is
+            # ~1,200 tokens. 2,000 leaves margin for dense messages while making
+            # a runaway loop fail in half the time and at half the cost.
+            max_tokens=2000,
             temperature=self._temperature,
             messages=[{"role": "system", "content": system}]
             + [m.model_dump() for m in messages],
@@ -96,4 +99,7 @@ class OpenAICompatibleLLM:
             },
         )
         raw = (response.choices[0].message.content or "").strip()
-        return output_type.model_validate(json.loads(_strip_code_fences(raw)))
+        try:
+            return output_type.model_validate(json.loads(_strip_code_fences(raw)))
+        except ValueError as exc:  # JSONDecodeError and pydantic's ValidationError
+            raise ExtractionParseError(str(exc), raw) from exc

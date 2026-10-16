@@ -21,13 +21,22 @@ class ConversationAgent:
         self._language = language
         self._max_reply_tokens = max_reply_tokens
 
-    def reply(self, session: ValidationSession, objectives: list[str] | None) -> str:
+    def reply(
+        self,
+        session: ValidationSession,
+        objectives: list[str] | None,
+        *,
+        answer_bot_question: bool = False,
+        confirm_stop: bool = False,
+    ) -> str:
         system = CONVERSATION_SYSTEM.format(language=self._language)
         context = build_conversation_context(
             known_facts=_known_facts_text(session),
             checklist_summary=session.checklist.summary(),
             objectives=objectives,
             closing_reason=session.conversation.state.value if objectives is None else None,
+            answer_bot_question=answer_bot_question,
+            confirm_stop=confirm_stop,
         )
         history = [
             ChatMessage(

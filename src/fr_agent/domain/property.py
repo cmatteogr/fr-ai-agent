@@ -28,6 +28,9 @@ class Property(BaseModel):
     address: str | None = None
     neighborhood: str | None = None
     city: str | None = None
+    # Asking price published in the listing (COP). Not the seller's minimum by
+    # itself — it only becomes min_price if the seller says the price is firm.
+    listed_price: int | None = None
     # Any OTHER checklist field this specific listing happens to supply
     # (e.g. a pre-construction listing stating legal_status="Sobre planos",
     # or renovations="A estrenar"). Deliberately NOT auto-derived from raw

@@ -88,22 +88,25 @@ FIELD_OPTIONS: dict[FieldName, list[str]] = {
 
 FIELD_MULTI: set[FieldName] = {FieldName.PAYMENT_METHODS}
 
-# Numeric fields: extraction fills .number (COP / days)
-NUMERIC_FIELDS: set[FieldName] = {FieldName.MIN_PRICE, FieldName.URGENCY}
+# The "doesn't know" option of each option field.
+UNKNOWN_OPTIONS: set[str] = {OccupancyStatus.UNKNOWN.value, LegalStatusOption.UNKNOWN.value}
+
+# Numeric fields: extraction fills .number (COP). Urgency is free text, not days.
+NUMERIC_FIELDS: set[FieldName] = {FieldName.MIN_PRICE}
 
 # Passive: never asked; filled only if mentioned (or derived).
 OPPORTUNISTIC_FIELDS: set[FieldName] = {
     FieldName.OCCUPANCY_NOTE,
-    FieldName.PAYMENT_NOTE,
-}
-
-# Negotiation group: asked if there's room, but does NOT block completion (optional tab).
-OPTIONAL_FIELDS: set[FieldName] = {
-    FieldName.MIN_PRICE,
-    FieldName.URGENCY,
+    # Payment is extra detail of the price answer: never asked on its own,
+    # captured when the seller mentions it (the min_price question invites it).
     FieldName.PAYMENT_METHODS,
     FieldName.PAYMENT_NOTE,
 }
+
+# Fields that are asked but do NOT block completion. Empty on purpose: min_price
+# and urgency used to live here, so the conversation always finished before
+# reaching them. Kept so a field can be made non-blocking again in one place.
+OPTIONAL_FIELDS: set[FieldName] = set()
 # Human-readable descriptions injected into agent prompts. Keep these in sync
 # with FieldName — they are the single place where each field's meaning is defined.
 FIELD_DESCRIPTIONS: dict[FieldName, str] = {
@@ -124,7 +127,10 @@ FIELD_DESCRIPTIONS: dict[FieldName, str] = {
         "Free-text details about occupancy (lease end date, who lives there, etc.)."
     ),
     FieldName.RENOVATIONS: "Repairs or renovations needed, and any recent remodels.",
-    FieldName.MIN_PRICE: "Minimum price the seller accepts, and how firm it is.",
+    FieldName.MIN_PRICE: (
+        "Minimum price the seller accepts (a number), and in the same question how "
+        "they would like to be paid (cash, mortgage credit, etc.)."
+    ),
     FieldName.PAYMENT_METHODS: (
         "Payment methods accepted: cash, bank financing, mortgage subrogation, "
         "installments, trade-ins."
@@ -133,8 +139,10 @@ FIELD_DESCRIPTIONS: dict[FieldName, str] = {
         "Underlying REASON for selling (divorce, inheritance, relocation, debt, "
         "need cash, investment). This is the WHY — not the speed."
     ),
-    FieldName.URGENCY: "How urgent the sale is / desired timeframe (must sell soon, no rush, max "
-    "days to wait). A wish to 'sell fast' belongs HERE, not in motivation.",
+    FieldName.URGENCY: (
+        "How fast the seller wants to sell and any deadline they have (free text). "
+        "A wish to 'sell fast' belongs HERE, not in motivation."
+    ),
 }
 
 FIELD_PRIORITIES: dict[FieldName, FieldPriority] = {
@@ -145,13 +153,13 @@ FIELD_PRIORITIES: dict[FieldName, FieldPriority] = {
     FieldName.OCCUPANCY: FieldPriority.MEDIUM,
     FieldName.OCCUPANCY_NOTE: FieldPriority.LOW,
     FieldName.RENOVATIONS: FieldPriority.MEDIUM,
-    FieldName.MIN_PRICE: FieldPriority.HIGH,
-    FieldName.PAYMENT_METHODS: FieldPriority.HIGH,
     FieldName.MOTIVATION: FieldPriority.HIGH,  # subió de importancia
-    FieldName.URGENCY: FieldPriority.LOW,
+    # Required now; MEDIUM so they're asked after location/legal/motivation,
+    # which reads more naturally than opening with money.
+    FieldName.MIN_PRICE: FieldPriority.MEDIUM,
+    FieldName.URGENCY: FieldPriority.MEDIUM,
+    FieldName.PAYMENT_METHODS: FieldPriority.LOW,  # opportunistic, never asked alone
     FieldName.PAYMENT_NOTE: FieldPriority.LOW,
-    FieldName.MIN_PRICE: FieldPriority.MEDIUM,  # opcional
-    FieldName.PAYMENT_METHODS: FieldPriority.MEDIUM,  # opcional
 }
 
 MAX_ATTEMPTS: dict[FieldPriority, int] = {
@@ -255,11 +263,14 @@ class ChecklistField(BaseModel):
     def max_attempts(self) -> int:
         return MAX_ATTEMPTS[self.priority]
 
+    @property
+    def out_of_attempts(self) -> bool:
+        return self.attempts >= self.max_attempts
+
     def should_skip(self) -> bool:
-        return self.attempts >= self.max_attempts and self.status in (
-            FieldStatus.PENDING,
-            FieldStatus.PARTIAL,
-        )
+        # Only a field with NO answer becomes skipped. A PARTIAL answer the
+        # seller did give is kept as partial: we stop asking, we don't erase it.
+        return self.out_of_attempts and self.status == FieldStatus.PENDING
 
 
 class ValidationChecklist(BaseModel):
@@ -289,7 +300,47 @@ class ValidationChecklist(BaseModel):
 
     def apply(self, update: FieldUpdate) -> None:
         current = self.fields[update.field]
+        # Guard 0: numeric fields hold a number, never text. Any text the model
+        # put there ("no ha pensado en un número") is dropped before anything else.
+        if update.field in NUMERIC_FIELDS:
+            update.value = ""
+        # Guard 0b: 'selection' only exists for fields with fixed options. On a
+        # free-text field the model sometimes puts the answer there by mistake
+        # (neighborhood=["Belén La Mota"], value=""): move it into value.
+        if update.field not in FIELD_OPTIONS:
+            if not update.value.strip() and update.selection:
+                update.value = ", ".join(update.selection)
+            update.selection = []
+        # Guard 1: a "confirmed"/"partial" update with nothing in it carries no
+        # information. The model sometimes emits these for fields nobody
+        # mentioned; they must not change the checklist.
+        has_content = bool(update.value.strip() or update.selection or update.number)
+        if update.status in (FieldStatus.CONFIRMED, FieldStatus.PARTIAL) and not has_content:
+            return
+        # Guard 1a: a city can't be the barrio's own name ("Belén" filed as city
+        # when the neighborhood is "Belén La Mota"). That's a barrio misfiled.
+        if update.field == FieldName.CITY and update.status in (
+            FieldStatus.CONFIRMED,
+            FieldStatus.PARTIAL,
+        ):
+            barrio = self.fields[FieldName.NEIGHBORHOOD].value
+            city = update.value.strip().casefold()
+            if barrio and city and (_same_value(city, barrio) or city in barrio.casefold()):
+                return
+        # Guard 1b: an address always has a number ("Calle 45B #12-30"). Without
+        # one it's a barrio or a city filed in the wrong place ("Belén",
+        # "laurles medellin"). Known limit: a rural "Finca X, vereda Y" with no
+        # number would be rejected too.
+        if (
+            update.field == FieldName.ADDRESS
+            and update.status in (FieldStatus.CONFIRMED, FieldStatus.PARTIAL)
+            and not any(ch.isdigit() for ch in update.value)
+        ):
+            return
         options = FIELD_OPTIONS.get(update.field, [])
+        # The model sometimes writes the option in 'value' instead of 'selection'.
+        if options and not update.selection and update.value:
+            update.selection = _normalize_selection(update.field, [update.value])
         if options and update.selection:
             clean = list(dict.fromkeys(_normalize_selection(update.field, update.selection)))
             if update.field not in FIELD_MULTI:
@@ -297,13 +348,32 @@ class ValidationChecklist(BaseModel):
             if clean:
                 update.selection = clean
                 update.value = ", ".join(clean)
-        if update.number is not None:
-            current.number = update.number
+            # SKIPPED means "doesn't know / refuses". If the model also picked a
+            # real option, the seller did give an answer, just unsure -> PARTIAL.
+            if update.status == FieldStatus.SKIPPED and any(
+                opt not in UNKNOWN_OPTIONS for opt in update.selection
+            ):
+                update.status = FieldStatus.PARTIAL
+        # Guard 2: a number of 0 is never a real price — treat as absent.
+        new_number = update.number if update.number is not None and update.number > 0 else None
 
-        if current.status == FieldStatus.CONFIRMED and not _same_value(update.value, current.value):
+        # Guard 3: restating an already-trusted value (typo, casing) keeps the
+        # trusted canonical value. Only a genuinely different value conflicts.
+        # Numeric fields compare the number (their text value is always empty).
+        if current.status == FieldStatus.CONFIRMED:
+            if update.field in NUMERIC_FIELDS:
+                same = new_number is None or new_number == current.number
+            else:
+                same = _same_value(update.value, current.value)
+            if same:
+                if update.evidence:
+                    current.evidence.append(update.evidence)
+                return
             current.status = FieldStatus.CONFLICTING
         else:
             current.status = update.status
+        if new_number is not None:
+            current.number = new_number
         current.value = update.value
         current.selection = update.selection
         if update.evidence:
@@ -318,8 +388,10 @@ class ValidationChecklist(BaseModel):
         return [
             f
             for f in self.fields.values()
-            if f.status
-            in (FieldStatus.PENDING, FieldStatus.PARTIAL, FieldStatus.CONFLICTING)
+            if f.status in (FieldStatus.PENDING, FieldStatus.CONFLICTING)
+            # a partial answer stays open until its attempts run out, then it
+            # stays partial but is no longer asked (and doesn't block completion)
+            or (f.status == FieldStatus.PARTIAL and not f.out_of_attempts)
         ]
 
     def askable_open_fields(self) -> list[ChecklistField]:

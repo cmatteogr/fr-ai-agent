@@ -37,6 +37,14 @@ class Conversation(BaseModel):
     # Consecutive turns where the seller's reply didn't address any
     # pending_fields. Reset to 0 the moment a real answer lands.
     off_topic_streak: int = 0
+    # The "are you a bot?" exception (no attempts spent, streak frozen) applies
+    # once per conversation. A seller who keeps asking isn't engaging, and a
+    # misfiring bot flag must not be able to block "unresponsive" forever.
+    bot_question_answered: bool = False
+    # The agent asked "¿preferís que no te escribamos más?" and is waiting for
+    # the answer. Only a confirmed stop closes the conversation, so pressure
+    # misread as a stop ("sin más preguntas") never loses a seller.
+    stop_confirmation_pending: bool = False
 
     def add(self, role: Role, text: str) -> None:
         self.messages.append(Message(role=role, text=text))
